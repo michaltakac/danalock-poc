@@ -11,11 +11,11 @@ export function LockManager() {
 
   return (
     <>
-      <div className="container mx-auto py-8">
+      <div className="container mx-auto py-8 px-4">
         <div className="mb-8">
-          <h1 className="text-4xl font-bold tracking-tight">Danalock Manager</h1>
+          <h1 className="text-4xl font-bold tracking-tight">Your Locks</h1>
           <p className="text-muted-foreground mt-2">
-            Manage and control your Danalock smart locks
+            Select a lock to control and monitor its status
           </p>
         </div>
 

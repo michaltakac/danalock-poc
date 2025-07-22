@@ -6,8 +6,9 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { Lock, LockOpen, Battery, RefreshCw, Loader2, AlertCircle, CheckCircle, Clock } from 'lucide-react'
+import { Lock, LockOpen, Battery, RefreshCw, Loader2, AlertCircle, CheckCircle, Clock, CreditCard, QrCode } from 'lucide-react'
 import { toast } from 'sonner'
+import { InvoiceScanner } from './invoice-scanner'
 
 interface LockControlPanelProps {
   lockName: string
@@ -23,13 +24,22 @@ interface BatteryInfo {
   battery_level?: number
 }
 
+interface MembershipInfo {
+  isValid: boolean
+  expiresAt?: string
+  invoiceId?: string
+}
+
 export function LockControlPanel({ lockName }: LockControlPanelProps) {
   const [lockState, setLockState] = useState<LockState>({})
   const [batteryInfo, setBatteryInfo] = useState<BatteryInfo>({})
-  const [loadingState, setLoadingState] = useState<'state' | 'battery' | null>(null)
+  const [membershipInfo, setMembershipInfo] = useState<MembershipInfo | null>(null)
+  const [loadingState, setLoadingState] = useState<'state' | 'battery' | 'membership' | null>(null)
   const [operationInProgress, setOperationInProgress] = useState<string | null>(null)
   const [activeTab, setActiveTab] = useState('control')
   const [apiRequestInProgress, setApiRequestInProgress] = useState(false)
+  const [useMembershipUnlock, setUseMembershipUnlock] = useState(false)
+  const [showInvoiceScanner, setShowInvoiceScanner] = useState(false)
 
   useEffect(() => {
     // Only fetch data when tab changes to avoid simultaneous requests
@@ -37,8 +47,39 @@ export function LockControlPanel({ lockName }: LockControlPanelProps) {
       fetchLockState()
     } else if (activeTab === 'battery') {
       fetchBatteryLevel()
+    } else if (activeTab === 'control' && useMembershipUnlock) {
+      checkMembershipStatus()
     }
-  }, [activeTab, lockName])
+  }, [activeTab, lockName, useMembershipUnlock])
+
+  useEffect(() => {
+    // Check for stored membership data on mount
+    if (useMembershipUnlock) {
+      const storedMembership = localStorage.getItem('ppke_membership')
+      if (storedMembership) {
+        try {
+          const membershipData = JSON.parse(storedMembership)
+          const expiresAt = new Date(membershipData.expiresAt)
+          const now = new Date()
+          
+          if (expiresAt > now) {
+            setMembershipInfo({
+              isValid: true,
+              expiresAt: membershipData.expiresAt,
+              invoiceId: membershipData.invoiceId
+            })
+          } else {
+            // Expired, remove from localStorage
+            localStorage.removeItem('ppke_membership')
+            checkMembershipStatus()
+          }
+        } catch (err) {
+          console.error('Failed to parse stored membership:', err)
+          localStorage.removeItem('ppke_membership')
+        }
+      }
+    }
+  }, [useMembershipUnlock])
 
   const fetchLockState = async () => {
     if (apiRequestInProgress) {
@@ -108,12 +149,112 @@ export function LockControlPanel({ lockName }: LockControlPanelProps) {
     }
   }
 
+  const checkMembershipStatus = async () => {
+    const apiKey = localStorage.getItem('btcpay_api_key')
+    if (!apiKey) {
+      setMembershipInfo({ isValid: false })
+      return
+    }
+
+    try {
+      setLoadingState('membership')
+      const response = await fetch(`/api/v1/${encodeURIComponent(lockName)}/unlock-member`, {
+        headers: {
+          'x-btcpay-api-key': apiKey
+        }
+      })
+
+      if (!response.ok) {
+        const error = await response.json()
+        console.error('Membership check failed:', error)
+        setMembershipInfo({ isValid: false })
+        return
+      }
+
+      const data = await response.json()
+      setMembershipInfo({
+        isValid: data.membership.isValid,
+        expiresAt: data.membership.expiresAt,
+        invoiceId: data.membership.mostRecentInvoice?.id
+      })
+    } catch (err) {
+      console.error('Failed to check membership:', err)
+      setMembershipInfo({ isValid: false })
+    } finally {
+      setLoadingState(null)
+    }
+  }
+
   const performOperation = async (operation: 'lock' | 'unlock') => {
     if (apiRequestInProgress) {
       toast.warning('Another request is in progress. Please wait.')
       return
     }
 
+    // Check if this is an unlock operation with membership requirement
+    if (operation === 'unlock' && useMembershipUnlock) {
+      const apiKey = localStorage.getItem('btcpay_api_key')
+      if (!apiKey) {
+        toast.error('BTCPay API key required. Please configure it in settings.')
+        return
+      }
+
+      try {
+        setApiRequestInProgress(true)
+        setOperationInProgress(operation)
+        
+        // Get stored membership data
+        const storedMembership = localStorage.getItem('ppke_membership')
+        let invoiceId = null
+        if (storedMembership) {
+          try {
+            const membershipData = JSON.parse(storedMembership)
+            invoiceId = membershipData.invoiceId
+          } catch (err) {
+            console.error('Failed to parse stored membership:', err)
+          }
+        }
+
+        const response = await fetch(`/api/v1/${encodeURIComponent(lockName)}/unlock-member`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-btcpay-api-key': apiKey
+          },
+          body: JSON.stringify({ invoiceId })
+        })
+        
+        if (!response.ok) {
+          const error = await response.json()
+          if (error.error === 'Valid membership required') {
+            toast.error('Valid membership required to unlock')
+            toast.info('Please ensure you have a paid membership invoice within the last 30 days')
+          } else if (error.details?.result?.bridge_server_status_text === 'BridgeBusy') {
+            toast.error('Bridge is busy. Please try again in a few seconds.')
+          } else {
+            toast.error(error.error || 'Failed to unlock')
+          }
+          return
+        }
+
+        const result = await response.json()
+        
+        if (result.success) {
+          toast.success('Lock unlocked successfully with valid membership')
+          toast.info('Switch to Status tab to check the new state')
+          // Refresh membership info
+          await checkMembershipStatus()
+        }
+      } catch (err) {
+        toast.error(err instanceof Error ? err.message : 'Failed to unlock')
+      } finally {
+        setOperationInProgress(null)
+        setApiRequestInProgress(false)
+      }
+      return
+    }
+
+    // Regular operation (lock or non-membership unlock)
     try {
       setApiRequestInProgress(true)
       setOperationInProgress(operation)
@@ -160,9 +301,24 @@ export function LockControlPanel({ lockName }: LockControlPanelProps) {
     return 'text-red-600'
   }
 
+  const handleInvoiceValidated = (invoiceData: any) => {
+    // Update membership info with validated invoice
+    const expiresAt = new Date(invoiceData.createdTime)
+    expiresAt.setDate(expiresAt.getDate() + 30)
+    
+    setMembershipInfo({
+      isValid: true,
+      expiresAt: expiresAt.toISOString(),
+      invoiceId: invoiceData.invoiceId
+    })
+    
+    toast.success('Membership activated successfully!')
+  }
+
   return (
-    <Card>
-      <CardHeader>
+    <>
+      <Card>
+        <CardHeader>
         <div className="flex items-center justify-between">
           <div>
             <CardTitle className="text-2xl">{lockName}</CardTitle>
@@ -185,12 +341,110 @@ export function LockControlPanel({ lockName }: LockControlPanelProps) {
           </TabsList>
           
           <TabsContent value="control" className="space-y-4">
+            {/* Membership Mode Toggle */}
+            <div className="flex items-center justify-between rounded-lg border p-4">
+              <div className="flex items-center gap-3">
+                <CreditCard className="h-5 w-5 text-blue-600" />
+                <div>
+                  <p className="font-medium">Membership Mode</p>
+                  <p className="text-sm text-muted-foreground">
+                    Require valid membership for unlock
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <Button
+                  variant={useMembershipUnlock ? "default" : "outline"}
+                  size="sm"
+                  onClick={() => setUseMembershipUnlock(!useMembershipUnlock)}
+                >
+                  {useMembershipUnlock ? "Enabled" : "Disabled"}
+                </Button>
+              </div>
+            </div>
+
+            {/* Membership Status */}
+            {useMembershipUnlock && (
+              <div className="rounded-lg border p-4">
+                {loadingState === 'membership' ? (
+                  <div className="flex items-center justify-center py-2">
+                    <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+                  </div>
+                ) : membershipInfo ? (
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-3">
+                        {membershipInfo.isValid ? (
+                          <CheckCircle className="h-5 w-5 text-green-600" />
+                        ) : (
+                          <AlertCircle className="h-5 w-5 text-red-600" />
+                        )}
+                        <div>
+                          <p className="font-medium">
+                            {membershipInfo.isValid ? 'Valid Membership' : 'No Valid Membership'}
+                          </p>
+                          {membershipInfo.expiresAt && (
+                            <p className="text-sm text-muted-foreground">
+                              Expires: {new Date(membershipInfo.expiresAt).toLocaleDateString()}
+                            </p>
+                          )}
+                          {membershipInfo.invoiceId && (
+                            <p className="text-xs text-muted-foreground">
+                              Invoice: {membershipInfo.invoiceId.substring(0, 8)}...
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                      <div className="flex gap-2">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setShowInvoiceScanner(true)}
+                          disabled={apiRequestInProgress}
+                        >
+                          <QrCode className="h-4 w-4 mr-2" />
+                          Add
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={checkMembershipStatus}
+                          disabled={apiRequestInProgress}
+                        >
+                          <RefreshCw className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    <div className="text-center text-sm text-muted-foreground">
+                      <p>No valid membership found</p>
+                    </div>
+                    <Button
+                      className="w-full"
+                      onClick={() => setShowInvoiceScanner(true)}
+                      disabled={!localStorage.getItem('btcpay_api_key')}
+                    >
+                      <QrCode className="h-4 w-4 mr-2" />
+                      Add Membership Invoice
+                    </Button>
+                    {!localStorage.getItem('btcpay_api_key') && (
+                      <p className="text-xs text-center text-muted-foreground">
+                        Configure BTCPay API key in settings first
+                      </p>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+
             <div className="flex items-center justify-center gap-4 py-8">
               <Button
                 size="lg"
                 variant={lockState.state === 'Locked' ? 'default' : 'outline'}
                 onClick={() => performOperation('lock')}
-                disabled={operationInProgress !== null}
+                disabled={operationInProgress !== null || apiRequestInProgress}
                 className="h-24 w-32 flex-col gap-2"
               >
                 {operationInProgress === 'lock' ? (
@@ -205,7 +459,7 @@ export function LockControlPanel({ lockName }: LockControlPanelProps) {
                 size="lg"
                 variant={lockState.state === 'Unlocked' ? 'default' : 'outline'}
                 onClick={() => performOperation('unlock')}
-                disabled={operationInProgress !== null}
+                disabled={operationInProgress !== null || apiRequestInProgress || (useMembershipUnlock && membershipInfo !== null && !membershipInfo.isValid)}
                 className="h-24 w-32 flex-col gap-2"
               >
                 {operationInProgress === 'unlock' ? (
@@ -216,6 +470,15 @@ export function LockControlPanel({ lockName }: LockControlPanelProps) {
                 <span>Unlock</span>
               </Button>
             </div>
+
+            {useMembershipUnlock && membershipInfo && !membershipInfo.isValid && (
+              <Alert>
+                <AlertCircle className="h-4 w-4" />
+                <AlertDescription>
+                  A valid membership is required to unlock this door. Please ensure you have a paid membership invoice within the last 30 days.
+                </AlertDescription>
+              </Alert>
+            )}
 
             {lockState.is_blocked && (
               <Alert variant="destructive">
@@ -334,5 +597,15 @@ export function LockControlPanel({ lockName }: LockControlPanelProps) {
         </Tabs>
       </CardContent>
     </Card>
+    
+    {/* Invoice Scanner Dialog */}
+    <InvoiceScanner
+      open={showInvoiceScanner}
+      onOpenChange={setShowInvoiceScanner}
+      onInvoiceValidated={handleInvoiceValidated}
+      btcpayApiKey={localStorage.getItem('btcpay_api_key') || ''}
+      lockName={lockName}
+    />
+    </>
   )
 }
