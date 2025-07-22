@@ -1,8 +1,8 @@
-import { NextResponse } from 'next/server';
-import { getDanalockClient, getLockSerialNumber } from '@/lib/lock-helper';
-import { validateConfig } from '@/lib/config';
-import { BTCPayClient } from '@/services/btcpay-client';
-import { clientEnv } from '@/lib/env';
+import { NextResponse } from "next/server";
+import { getDanalockClient, getLockSerialNumber } from "@/lib/lock-helper";
+import { validateConfig } from "@/lib/config";
+import { BTCPayClient } from "@/services/btcpay-client";
+import { clientEnv } from "@/lib/env";
 
 export async function POST(
   request: Request,
@@ -10,15 +10,15 @@ export async function POST(
 ) {
   try {
     validateConfig();
-    
-    const lockName = await params.lockName;
-    
+
+    const { lockName } = await params;
+
     // Get BTCPay API key from request header
-    const btcpayApiKey = request.headers.get('x-btcpay-api-key');
-    
+    const btcpayApiKey = request.headers.get("x-btcpay-api-key");
+
     if (!btcpayApiKey) {
       return NextResponse.json(
-        { error: 'BTCPay API key required' },
+        { error: "BTCPay API key required" },
         { status: 401 }
       );
     }
@@ -41,42 +41,43 @@ export async function POST(
     if (invoiceId) {
       try {
         const invoice = await btcPayClient.getInvoiceById(invoiceId);
-        const isPaid = invoice.status === 'Settled' || invoice.status === 'Complete';
+        const isPaid =
+          invoice.status === "Settled" || invoice.status === "Complete";
         const createdDate = new Date(invoice.createdTime * 1000);
         const thirtyDaysAgo = new Date();
         thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-        
+
         if (isPaid && createdDate >= thirtyDaysAgo) {
           membershipValid = true;
           const expiresAt = new Date(createdDate);
           expiresAt.setDate(expiresAt.getDate() + 30);
-          
+
           membershipData = {
             valid: true,
             invoiceId: invoice.id,
-            expiresAt: expiresAt.toISOString()
+            expiresAt: expiresAt.toISOString(),
           };
         }
       } catch (error) {
-        console.error('Failed to verify specific invoice:', error);
+        console.error("Failed to verify specific invoice:", error);
       }
     }
 
     // If no valid membership from specific invoice, check general membership status
-    if (!membershipValid) {
-      const membershipStatus = await btcPayClient.checkMembershipStatus({
-        type: 'membership' // You can customize this metadata filter
-      });
+    const membershipStatus = await btcPayClient.checkMembershipStatus({
+      type: "membership", // You can customize this metadata filter
+    });
 
+    if (!membershipValid) {
       if (!membershipStatus.isValid) {
         return NextResponse.json(
-          { 
-            error: 'Valid membership required',
-            message: 'No valid membership invoice found',
+          {
+            error: "Valid membership required",
+            message: "No valid membership invoice found",
             membershipStatus: {
               isValid: false,
-              invoiceCount: membershipStatus.invoiceCount
-            }
+              invoiceCount: membershipStatus.invoiceCount,
+            },
           },
           { status: 403 }
         );
@@ -85,69 +86,63 @@ export async function POST(
       membershipData = {
         valid: true,
         invoiceId: membershipStatus.mostRecentInvoice?.id,
-        expiresAt: membershipStatus.expiresAt
+        expiresAt: membershipStatus.expiresAt,
       };
     }
 
     // Membership is valid, proceed with unlock
     const client = getDanalockClient();
     const serialNumber = await getLockSerialNumber(lockName);
-    
-    const operateResponse = await client.operateLock(serialNumber, 'unlock');
-    
-    if (operateResponse.status !== 'Succeeded') {
+
+    const operateResponse = await client.operateLock(serialNumber, "unlock");
+
+    if (operateResponse.status !== "Succeeded") {
       return NextResponse.json(
-        { error: 'Failed to unlock', details: operateResponse },
+        { error: "Failed to unlock", details: operateResponse },
         { status: 500 }
       );
     }
-    
+
     return NextResponse.json({
       success: true,
       lock_name: lockName,
-      operation: 'unlock',
+      operation: "unlock",
       afi_status: operateResponse.result?.afi_status,
       afi_status_text: operateResponse.result?.afi_status_text,
       membership: {
         valid: true,
         invoiceId: membershipStatus.mostRecentInvoice?.id,
-        expiresAt: membershipStatus.expiresAt
-      }
+        expiresAt: membershipStatus.expiresAt,
+      },
     });
   } catch (error) {
-    console.error('Error unlocking with membership check:', error);
-    
+    console.error("Error unlocking with membership check:", error);
+
     if (error instanceof Error) {
-      if (error.message.includes('credentials')) {
+      if (error.message.includes("credentials")) {
         return NextResponse.json(
-          { error: 'Invalid configuration' },
+          { error: "Invalid configuration" },
           { status: 500 }
         );
       }
-      if (error.message.includes('not found')) {
-        return NextResponse.json(
-          { error: error.message },
-          { status: 404 }
-        );
+      if (error.message.includes("not found")) {
+        return NextResponse.json({ error: error.message }, { status: 404 });
       }
-      if (error.message.includes('timeout')) {
+      if (error.message.includes("timeout")) {
         return NextResponse.json(
-          { error: 'Bridge communication timeout' },
+          { error: "Bridge communication timeout" },
           { status: 504 }
         );
       }
-      if (error.message.includes('BTCPay')) {
+      if (error.message.includes("BTCPay")) {
         return NextResponse.json(
-          { error: 'Failed to verify membership', details: error.message },
+          { error: "Failed to verify membership", details: error.message },
           { status: 500 }
         );
       }
     }
-    
-    return NextResponse.json(
-      { error: 'Failed to unlock' },
-      { status: 500 }
-    );
+
+    return NextResponse.json({ error: "Failed to unlock" }, { status: 500 });
   }
 }
 
@@ -157,11 +152,11 @@ export async function GET(
   { params }: { params: { lockName: string } }
 ) {
   try {
-    const btcpayApiKey = request.headers.get('x-btcpay-api-key');
-    
+    const btcpayApiKey = request.headers.get("x-btcpay-api-key");
+
     if (!btcpayApiKey) {
       return NextResponse.json(
-        { error: 'BTCPay API key required' },
+        { error: "BTCPay API key required" },
         { status: 401 }
       );
     }
@@ -175,7 +170,7 @@ export async function GET(
 
     // Check membership status
     const membershipStatus = await btcPayClient.checkMembershipStatus({
-      type: 'membership' // You can customize this metadata filter
+      type: "membership", // You can customize this metadata filter
     });
 
     return NextResponse.json({
@@ -184,14 +179,14 @@ export async function GET(
         isValid: membershipStatus.isValid,
         invoiceCount: membershipStatus.invoiceCount,
         mostRecentInvoice: membershipStatus.mostRecentInvoice,
-        expiresAt: membershipStatus.expiresAt
-      }
+        expiresAt: membershipStatus.expiresAt,
+      },
     });
   } catch (error) {
-    console.error('Error checking membership status:', error);
-    
+    console.error("Error checking membership status:", error);
+
     return NextResponse.json(
-      { error: 'Failed to check membership status' },
+      { error: "Failed to check membership status" },
       { status: 500 }
     );
   }

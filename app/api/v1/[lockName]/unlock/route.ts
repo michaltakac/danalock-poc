@@ -9,7 +9,7 @@ export async function GET(
   try {
     validateConfig();
     
-    const lockName = await params.lockName;
+    const { lockName } = await params;
     const client = getDanalockClient();
     const serialNumber = await getLockSerialNumber(lockName);
     
