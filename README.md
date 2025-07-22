@@ -1,4 +1,62 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Danalock V3 communication PoC
+
+See OpenAPI docs `unofficial-danalock-web-api.yaml` and `unofficial-danabridge-web-api.yaml` for more info.
+
+### Example: How to retrieve the lock's status
+
+In this example, the server URLs are excluded.
+
+First, retrieve the bridge's serial number. Requests are described in `unofficial-danalock-web-api.yaml`.
+
+- Retrieve the lock’s serial-number using `GET /locks/v1`
+- Use the lock’s serial-number in `GET /devices/v1/{lock-serial_number}/paired_devices` to retrieve paired devices.
+
+
+Second, ask the Danalock bridge for status. Requests are described in `unofficial-danabridge-web-api.yaml`.
+
+- Use the `lock serial_number` + `operation` (i.e. "afi.lock.get-state") in `POST /bridge/v1/execute` to ask the bridge to prepare a status message. This call will return an `job id` to be used in next request.
+- Wait about 5 - 7 seconds for the bridge to retrieve status from lock
+- Use ``job id`` from previous call to poll the bridge for the status message ``POST /bridge/v1/poll``
+
+## API endpoints
+
+|  Operation| API request   |
+|---|---|
+| List locks        |`GET http://localhost:3000/api/v1/locks`|
+| Get state         |`GET http://localhost:3000/api/v1/[lockName]/get-state`|
+| Lock the lock     |`GET http://localhost:3000/api/v1/[lockName]/lock`|
+| Unlock the lock   |`GET http://localhost:3000/api/v1/[lockName]/unlock`|
+| Get battery level |`GET http://localhost:3000/api/v1/[lockName]/battery-level`|
+
+Where `[lockName]` is the name of the lock as configured in your Danalock account (e.g., "lock-storage-room").
+
+### Example API calls:
+
+```bash
+# List all locks
+curl http://localhost:3000/api/v1/locks
+
+# Get state of lock named "lock-storage-room"
+curl http://localhost:3000/api/v1/lock-storage-room/get-state
+
+# Lock the "lock-storage-room"
+curl http://localhost:3000/api/v1/lock-storage-room/lock
+
+# Unlock the "lock-storage-room"  
+curl http://localhost:3000/api/v1/lock-storage-room/unlock
+
+# Get battery level
+curl http://localhost:3000/api/v1/lock-storage-room/battery-level
+```
+
+## Configuration
+
+Create a `.env` file in the root directory with your Danalock credentials:
+
+```env
+DANALOCK_USERNAME=your-danalock-email@example.com
+DANALOCK_PASSWORD=your-danalock-password
+```
 
 ## Getting Started
 

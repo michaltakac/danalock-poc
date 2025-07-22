@@ -1,0 +1,382 @@
+openapi: 3.0.0
+info:
+  title: unofficial-danabridge-web-api
+  version: '1.0'
+  description: ''
+servers:
+  - url: 'https://bridge.danalockservices.com'
+paths:
+  /bridge/v1/execute:
+    post:
+      summary: Execute command
+      operationId: ''
+      responses:
+        '200':
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JobId'
+              examples: {}
+      requestBody:
+        content:
+          application/json:
+            schema:
+              anyOf:
+                - $ref: '#/components/schemas/LockState'
+                - $ref: '#/components/schemas/LockOperate'
+                - $ref: '#/components/schemas/PinCodesGetPinCodes'
+                - $ref: '#/components/schemas/PowerSourceGetInformation2'
+            examples:
+              LockGetState:
+                value:
+                  device: '22:22:1c:a9:11:12'
+                  operation: afi.lock.get-state
+              PinCodesGetPinCodes:
+                value:
+                  device: '22:22:1c:a9:11:12'
+                  operation: afi.pin-codes.get-pin-codes
+                  arguments:
+                    - '1'
+              LockOperateLock:
+                value:
+                  device: '11:11:1c:11:12:12'
+                  operation: afi.lock.operate
+                  arguments:
+                    - lock
+              LockOperateUnlock:
+                value:
+                  device: '11:11:1c:11:12:12'
+                  operation: afi.lock.operate
+                  arguments:
+                    - unlock
+        description: ''
+      description: |-
+        The backend implements an async HTTP pattern, i.e.:
+        1. Use this operation to execute a command
+        2. In return you get an `id`
+        3. To view the status/outcome of the command, pass the `id` to `POST /bridge/v1/poll`. Note that a response is not available until after 5+ seconds.
+
+        Documented commands (it may support more)
+        | Command | Description |
+        | --- | --- |
+        | LockGetState | Get current state/status of lock - e.g. "locked" or "unlocked"|
+        | PinCodesGetPinCodes | Get PIN codes. PIN codes need to be set in Danalock web UI|
+        |LockOperateUnlock | Unlock the lock|
+        |LockOperatelock | Lock the lock|
+        |PowerSourceGetInformation2 | Get battery level|
+  /bridge/v1/poll:
+    post:
+      summary: Poll for status of executed comand
+      operationId: post-bridge-v1-poll
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                anyOf:
+                  - $ref: '#/components/schemas/LockGetStateResponse'
+                  - $ref: '#/components/schemas/LockOperateResponse'
+                  - $ref: '#/components/schemas/PinCodesGetPinCodesResponse'
+              examples:
+                LockGetStateResponse:
+                  value:
+                    id: b4e06993-f29a-4097-8c5d-531d4c411834
+                    status: Succeeded
+                    result:
+                      state: Locked
+                      lock_status: Idle
+                      is_blocked: true
+                      afi_status: 0
+                      afi_status_text: Ok
+                      dmi_status: 0
+                      dmi_status_text: ok
+                LockOperateLockResponse:
+                  value:
+                    id: b4e06993-f29a-4097-8c5d-531d4c411834
+                    status: Succeeded
+                    result:
+                      afi_status: 0
+                      afi_status_text: Ok
+                      dmi_status: 0
+                      dmi_status_text: ok
+                PinCodesGetPinCodes:
+                  value:
+                    id: b4e06993-f29a-4097-8c5d-531d4c411834
+                    status: Succeeded
+                    result:
+                      afi_status: 0
+                      afi_status_text: Ok
+                      dmi_status: 0
+                      dmi_status_text: ok
+                      pin_codes:
+                        - identifier: 1
+                          status: 2
+                          digits: '1234'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/JobId'
+      description: To poll for response of the previously executed `POST /bridge/v1/execute` command.
+components:
+  schemas:
+    JobId:
+      title: JobId
+      type: object
+      properties:
+        id:
+          type: string
+          example: 49dbb678-79d9-4a8e-aebf-5d258a83eb5b
+      description: Remote operation job id
+    PowerSourceGetInformation2:
+      title: PowerSourceGetInformation2
+      type: object
+      description: Command for representing information such as battery level
+      properties:
+        device:
+          type: string
+          example: '22:22:1c:a9:11:12'
+        operation:
+          type: string
+          example: afi.power-source.get-information2
+          enum:
+            - afi.power-source.get-information2
+    PowerSourceGetInformation2Response:
+      title: PowerSourceGetInformation2Response
+      type: object
+      properties:
+        id:
+          type: string
+          example: b4e06993-f29a-4097-8c5d-531d4c411834
+        status:
+          type: string
+          example: Succeeded
+        result:
+          type: object
+          properties:
+            battery_level:
+              type: integer
+              example: Locked
+            afi_status:
+              type: integer
+              example: 0
+            afi_status_text:
+              type: string
+              example: Ok
+            dmi_status:
+              type: number
+              example: 0
+            dmi_status_text:
+              type: string
+              example: ok
+    LockGetState:
+      title: LockGetState
+      type: object
+      description: Command for representing lock state
+      properties:
+        device:
+          type: string
+          example: '22:22:1c:a9:11:12'
+        operation:
+          type: string
+          example: afi.lock.get-state
+          enum:
+            - afi.lock.get-state
+    LockGetStateResponse:
+      title: LockGetStateResponse
+      type: object
+      properties:
+        id:
+          type: string
+          example: b4e06993-f29a-4097-8c5d-531d4c411834
+        status:
+          type: string
+          example: Succeeded
+        result:
+          type: object
+          properties:
+            state:
+              type: string
+              example: Locked
+            lock_status:
+              type: string
+              example: Idle
+            is_blocked:
+              type: boolean
+            afi_status:
+              type: integer
+              example: 0
+            afi_status_text:
+              type: string
+              example: Ok
+            dmi_status:
+              type: number
+              example: 0
+            dmi_status_text:
+              type: string
+              example: ok
+    LockOperate:
+      title: LockOperateLock
+      type: object
+      properties:
+        device:
+          type: string
+          example: '22:22:1c:a9:11:12'
+        operation:
+          type: string
+          example: afi.lock.operate
+          enum:
+            - afi.lock.operate
+        arguments:
+          type: array
+          items:
+            type: string
+            enum:
+              - lock
+              - unlock
+      x-examples: {}
+    LockOperateResponse:
+      title: LockOperateLockResponse
+      type: object
+      properties:
+        id:
+          type: string
+          example: b4e06993-f29a-4097-8c5d-531d4c411834
+        status:
+          type: string
+          example: Succeeded
+        result:
+          type: object
+          properties:
+            afi_status:
+              type: integer
+              example: 0
+            afi_status_text:
+              type: string
+              example: Ok
+            dmi_status:
+              type: integer
+              example: 0
+            dmi_status_text:
+              type: string
+              example: ok
+    PinCodesGetPinCodes:
+      title: PinCodesGetPinCodes
+      type: object
+      x-examples: {}
+      properties:
+        device:
+          type: string
+          example: '22:22:1c:a9:11:12'
+        operation:
+          type: string
+          enum:
+            - afi.pin-codes.get-pin-codes
+        arguments:
+          type: array
+          description: Number of PIN codes to return. Danalock allows a maximum of 20 PIN codes.
+          items:
+            type: string
+            enum:
+              - '1'
+              - '2'
+              - '3'
+              - '4'
+              - '5'
+              - '6'
+              - '7'
+              - '8'
+              - '9'
+              - '10'
+              - '11'
+              - '12'
+              - '13'
+              - '14'
+              - '15'
+              - '16'
+              - '17'
+              - '18'
+              - '19'
+              - '20'
+    PinCodesGetPinCodesResponse:
+      title: PinCodesGetPinCodes
+      type: object
+      description: ''
+      x-examples:
+        example-1:
+          id: b4e06993-f29a-4097-8c5d-531d4c411834
+          status: Succeeded
+          result:
+            afi_status: 0
+            afi_status_text: Ok
+            dmi_status: 0
+            dmi_status_text: ok
+            pin_codes:
+              - identifier: 1
+                status: 2
+                digits: '1234'
+      properties:
+        id:
+          type: string
+          example: b4e06993-f29a-4097-8c5d-531d4c411834
+        status:
+          type: string
+          example: Succeeded
+        result:
+          type: object
+          properties:
+            afi_status:
+              type: integer
+              example: 0
+            afi_status_text:
+              type: string
+              example: Ok
+            dmi_status:
+              type: integer
+              example: 0
+            dmi_status_text:
+              type: string
+              example: ok
+            pin_codes:
+              type: array
+              items:
+                type: object
+                properties:
+                  identifier:
+                    type: number
+                    description: 'Your first PIN is identified as `1`, your second as `2`...'
+                    minimum: 1
+                    maximum: 20
+                    example: 1
+                  status:
+                    type: number
+                    description: |-
+                      | Code | Description|
+                      | ---  | --- |
+                      |`1`| PIN not in use |
+                      |`2`| PIN in use |
+                    example: 2
+                    minimum: 1
+                    maximum: 2
+                  digits:
+                    type: string
+                    description: The PIN code. Digits only.
+                    minLength: 4
+                    maxLength: 10
+                    pattern: '^[0-9]*$'
+                    example: '1234'
+  securitySchemes:
+    oauth2-scheme:
+      type: oauth2
+      flows:
+        password:
+          refreshUrl: 'https://api.danalock.com/oauth2/token'
+          scopes: {}
+          tokenUrl: 'https://api.danalock.com/oauth2/token'
+      description: |-
+        username: < email your danalock web account > password: <pw your danalock web account >
+        client_id: danalock-web
+        client_secret: should be empty
+        scope: should be empty
